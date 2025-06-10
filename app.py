@@ -1,51 +1,72 @@
 import streamlit as st
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
+import os
 
-# Load the dataset
-file_path = '/325-Project.xlsx'  # Update with the correct path if necessary
-data = pd.read_excel(file_path)
+# Streamlit page setup
+st.set_page_config(page_title="Suicide Dashboard", layout="wide")
 
-# Convert Last GPA values over 4 to a 4.0 scale, and set any non-student entries to 0
-data['Last GPA - (Enter 0 if non-students)'] = data['Last GPA - (Enter 0 if non-students)'].apply(
-    lambda x: x / 25 if x > 4 else (x if x > 0 else 0)
-)
+# Load data
+@st.cache_data
+def load_data():
+    df = pd.read_csv("/Users/nadimkawkabani/Desktop/Healthcare Analytics/who_suicide_statistics.csv")
+    df.dropna(inplace=True)
+    return df
 
-# Convert Current Test Scores values over 4 to a 4.0 scale, and set any non-student entries to 0
-data['Current test scores(average) - (Enter 0 if non-students)'] = data['Current test scores(average) - (Enter 0 if non-students)'].apply(
-    lambda x: x / 25 if x > 4 else (x if x > 0 else 0)
-)
+df = load_data()
 
-# Sidebar filter for Region
-st.sidebar.header("Filter Criteria")
-region_options = data['Region'].unique()
-selected_region = st.sidebar.multiselect("Select Region(s)", region_options, default=region_options)
+# Sidebar filters
+st.sidebar.title("🔎 Filters")
+selected_year = st.sidebar.selectbox("Select Year", sorted(df["year"].unique()))
+selected_gender = st.sidebar.selectbox("Select Gender", df["sex"].unique())
+selected_age = st.sidebar.selectbox("Select Age Group", df["age"].unique())
 
-# Selection between Last GPA and Current Test Scores
-gpa_type = st.sidebar.radio("Select GPA Type", ["Last GPA", "Current Test Scores"])
+# Apply filters
+filtered_df = df[
+    (df["year"] == selected_year) &
+    (df["sex"] == selected_gender) &
+    (df["age"] == selected_age)
+]
 
-# Apply filters based on the selection
-filtered_data = data[data['Region'].isin(selected_region)]
+# Display summary
+st.title("📊 Suicide Rates Dashboard")
+st.markdown(f"""
+Showing data for:
+- **Year**: {selected_year}  
+- **Gender**: {selected_gender}  
+- **Age Group**: {selected_age}
+""")
 
-# Display the filtered data based on GPA type
-if gpa_type == "Last GPA":
-    gpa_column = 'Last GPA - (Enter 0 if non-students)'
-else:
-    gpa_column = 'Current test scores(average) - (Enter 0 if non-students)'
+st.subheader("📌 Summary Statistics")
+col1, col2 = st.columns(2)
+col1.metric("Total Suicides", int(filtered_df["suicides_no"].sum()))
+col2.metric("Countries in Selection", filtered_df["country"].nunique())
 
-# Filtered data view
-st.write("Filtered Data", filtered_data[['Region', gpa_column]])
+# Top 10 countries by suicides
+st.subheader("🌍 Top 10 Countries by Suicide Count (Filtered)")
+top_countries = filtered_df.groupby("country")["suicides_no"].sum().sort_values(ascending=False).head(10)
 
-# Create a bar chart to show average GPA by Region based on the selection
-if not filtered_data.empty:
-    avg_gpa_by_region = filtered_data.groupby('Region')[gpa_column].mean()
+fig1, ax1 = plt.subplots(figsize=(10, 6))
+sns.barplot(x=top_countries.values, y=top_countries.index, palette="Blues_r", ax=ax1)
+ax1.set_title(f"Top 10 Countries ({selected_year}, {selected_gender}, {selected_age})")
+ax1.set_xlabel("Number of Suicides")
+st.pyplot(fig1)
 
-    # Plotting
-    fig, ax = plt.subplots()
-    avg_gpa_by_region.plot(kind='bar', color='skyblue', ax=ax)
-    ax.set_xlabel("Region")
-    ax.set_ylabel(f"Average {gpa_type}")
-    ax.set_title(f"Average {gpa_type} by Region")
-    st.pyplot(fig)
-else:
-    st.write("No data available for the selected filters.")
+# Global trend over time (unfiltered)
+st.subheader("📈 Global Suicide Trend (1985–2016)")
+trend_df = df.groupby("year")["suicides_no"].sum().reset_index()
+fig2, ax2 = plt.subplots(figsize=(10, 5))
+sns.lineplot(data=trend_df, x="year", y="suicides_no", marker="o", ax=ax2)
+ax2.set_title("Total Suicides Globally Over Time")
+ax2.set_ylabel("Total Suicides")
+st.pyplot(fig2)
+
+# Optional: download filtered data
+st.subheader("🗃 Export Filtered Data")
+csv = filtered_df.to_csv(index=False).encode("utf-8")
+st.download_button("Download Filtered Data as CSV", csv, "filtered_data.csv", "text/csv")
+
+# Footer
+st.markdown("---")
+st.markdown("📌 Data source: WHO Suicide Statistics via Kaggle")
