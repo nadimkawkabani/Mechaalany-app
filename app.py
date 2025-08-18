@@ -7,8 +7,7 @@ st.set_page_config(layout="wide")
 
 # --- Part 1: Load and Clean ALL Data from GitHub ---
 # **CRITICAL CHANGE**: Replace this URL with the RAW URL of your Excel file from GitHub
-GITHUB_URL = "https://raw.githubusercontent.com/YourUsername/YourRepositoryName/main/Dashboard.xlsx"
-
+GITHUB_URL = "https://raw.githubusercontent.com/nadimkawkabani/projectsstudents-app/main/Dashboard.xlsx"
 @st.cache_data
 def load_data(url):
     """Loads all data from the specified Excel file URL and returns cleaned dataframes."""
