@@ -17,13 +17,15 @@ def load_data(url):
         st.error(f"Failed to load the Excel file from the URL. Please check the link. Error: {e}")
         return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
-    # Load and clean each sheet
     def clean_sheet(sheet_name, id_col_name, header_row=0, item_prefix=None):
         try:
             df = pd.read_excel(xls, sheet_name, header=header_row)
             df.rename(columns={df.columns[0]: id_col_name}, inplace=True)
             if item_prefix and id_col_name in df.columns:
                 df = df[df[id_col_name].str.startswith(item_prefix, na=False)].copy()
+            # **CRITICAL FIX**: Ensure the ID column is of string type to prevent merge/filter issues
+            if id_col_name in df.columns:
+                df[id_col_name] = df[id_col_name].astype(str)
             return df
         except Exception as e:
             st.warning(f"Could not load or process '{sheet_name}' sheet: {e}")
@@ -41,71 +43,67 @@ def load_data(url):
 sales_df, purchases_df, production_df, customers_2024_df, customers_2022_df = load_data(GITHUB_URL)
 
 
-# --- Part 2: Sidebar Filters ---
+# --- Part 2: Sidebar Filters (More Robust Version) ---
 st.sidebar.header('Dashboard Filters')
 
-# General item/product filter (applies to most tabs)
-# We combine all unique items/products from relevant sheets
-all_items = pd.concat([
-    sales_df['Item'].dropna(),
-    purchases_df['Item'].dropna(),
-    production_df['Item'].dropna()
-]).unique()
+# --- FIX for Item Filter ---
+# Create a comprehensive list of all unique 'Item' values from all relevant sheets
+all_items = []
+if 'Item' in sales_df.columns:
+    all_items.extend(sales_df['Item'].dropna().unique())
+if 'Item' in purchases_df.columns:
+    all_items.extend(purchases_df['Item'].dropna().unique())
+if 'Item' in production_df.columns:
+    all_items.extend(production_df['Item'].dropna().unique())
+# Get the final unique list and sort it
+all_items = sorted(list(set(all_items)))
 
-all_products = pd.concat([
-    customers_2024_df['Product'].dropna(),
-    customers_2022_df['Product'].dropna()
-]).unique()
-
-# A multi-select filter for Items
 selected_items = st.sidebar.multiselect(
     'Select Items:',
     options=all_items,
-    default=all_items[:5] # Default to the first 5 items to keep the initial view clean
+    default=all_items[:5] if all_items else [] # Default to first 5, or empty if no items
 )
 
-# A multi-select filter for Products
+# --- FIX for Product Filter ---
+all_products = []
+if 'Product' in customers_2024_df.columns:
+    all_products.extend(customers_2024_df['Product'].dropna().unique())
+if 'Product' in customers_2022_df.columns:
+    all_products.extend(customers_2022_df['Product'].dropna().unique())
+all_products = sorted(list(set(all_products)))
+
 selected_products = st.sidebar.multiselect(
     'Select Products:',
     options=all_products,
-    default=all_products[:5] # Default to the first 5 products
+    default=all_products[:5] if all_products else []
 )
 
 # --- Part 3: Main Dashboard Layout ---
 st.title('Business Performance Dashboard')
 
-# Filter dataframes based on sidebar selections
-if selected_items:
-    sales_df_filtered = sales_df[sales_df['Item'].isin(selected_items)]
-    purchases_df_filtered = purchases_df[purchases_df['Item'].isin(selected_items)]
-    production_df_filtered = production_df[production_df['Item'].isin(selected_items)]
-else:
-    sales_df_filtered, purchases_df_filtered, production_df_filtered = sales_df, purchases_df, production_df
-
-if selected_products:
-    customers_2024_df_filtered = customers_2024_df[customers_2024_df['Product'].isin(selected_products)]
-    customers_2022_df_filtered = customers_2022_df[customers_2022_df['Product'].isin(selected_products)]
-else:
-    customers_2024_df_filtered, customers_2022_df_filtered = customers_2024_df, customers_2022_df
-
+# The filtering logic itself was correct, the issue was in the list creation.
+# This section remains largely the same.
+sales_df_filtered = sales_df[sales_df['Item'].isin(selected_items)] if selected_items else sales_df
+purchases_df_filtered = purchases_df[purchases_df['Item'].isin(selected_items)] if selected_items else purchases_df
+production_df_filtered = production_df[production_df['Item'].isin(selected_items)] if selected_items else production_df
+customers_2024_df_filtered = customers_2024_df[customers_2024_df['Product'].isin(selected_products)] if selected_products else customers_2024_df
+customers_2022_df_filtered = customers_2022_df[customers_2022_df['Product'].isin(selected_products)] if selected_products else customers_2022_df
 
 # Create tabs
 tab_sales, tab_purchases, tab_production, tab_customers_2024, tab_customers_2022 = st.tabs([
     "Sales", "Purchases", "Production", "Customers 2024", "Customers 2022"
 ])
 
-
 # --- Content for Each Tab ---
 with tab_sales:
     st.header("Sales Performance")
-    
-    # Specific filter for the Sales tab, placed inside the tab
+    # Using a list comprehension to find available metrics is safer
+    available_metrics = [col for col in sales_df.columns if col != 'Item']
     sales_metrics = st.multiselect(
         'Select Sales Metrics to Display:',
-        options=[col for col in sales_df.columns if col != 'Item'],
-        default=['Sum of NET', 'Sum of QTY'] # Sensible defaults
+        options=available_metrics,
+        default=[m for m in ['Sum of NET', 'Sum of QTY'] if m in available_metrics]
     )
-
     if not sales_df_filtered.empty and sales_metrics:
         sales_melted = sales_df_filtered.melt(id_vars=['Item'], value_vars=sales_metrics, var_name='Metric', value_name='Value')
         fig_sales = px.line(sales_melted, x='Item', y='Value', color='Metric', markers=True, title='Sales Performance by Selected Items')
@@ -120,7 +118,7 @@ with tab_purchases:
         fig_purchases = px.line(purchases_melted, x='Item', y='Value', color='Metric', markers=True, title='Purchases by Selected Items (kg)')
         st.plotly_chart(fig_purchases, use_container_width=True)
     else:
-        st.info("No data to display. Please select items from the sidebar.")
+        st.info("No data to display for the selected items. Please select items from the sidebar.")
 
 with tab_production:
     st.header("Production Metrics by Item")
@@ -129,7 +127,7 @@ with tab_production:
         fig_production = px.line(production_melted, x='Item', y='Value', color='Metric', markers=True, title='Production Metrics by Selected Items')
         st.plotly_chart(fig_production, use_container_width=True)
     else:
-        st.info("No data to display. Please select items from the sidebar.")
+        st.info("No data to display for the selected items. Please select items from the sidebar.")
 
 with tab_customers_2024:
     st.header("2024 Sales by Product and Customer")
