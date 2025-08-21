@@ -164,3 +164,77 @@ with tab_forecasting:
             fig_mape = px.line(results_df, x='Date', y='Rolling MAPE (%)')
             fig_mape.update_traces(line_color='green')
             st.plotly_chart(fig_mape, use_container_width=True)
+
+# --- NEW: Content for Forecasting Tab (with Toggles) ---
+with tab_forecasting:
+    st.header("Demand Forecasting")
+    
+    # --- Chart 1: Historical Monthly Production ---
+    st.subheader("Historical Monthly Production")
+    fig_hist = px.line(monthly_production_hist, x='Month', y='Quantity Produced (t)', markers=True)
+    fig_hist.update_traces(line_color='orange')
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+    st.markdown("---")
+    st.header("Prophet Model Forecast")
+
+    # Use a button to trigger the model training
+    if st.button("Generate 2-Year Forecast"):
+        with st.spinner("Training model and generating forecast..."):
+            # Run forecast on the DAILY data
+            forecast_data = generate_forecast(daily_demand_hist)
+            
+            # --- Chart 2: Actual vs. Forecast with Toggles ---
+            st.subheader("Daily Demand vs. Prophet Forecast")
+
+            # Create columns for a cleaner layout
+            col1, col2 = st.columns(2)
+            show_actual = col1.checkbox("Show Actual Demand", value=True)
+            show_forecast = col2.checkbox("Show Prophet Forecast", value=True)
+
+            fig_forecast = go.Figure()
+
+            # Conditionally add traces based on checkbox state
+            if show_actual:
+                fig_forecast.add_trace(go.Scatter(
+                    x=daily_demand_hist['Date'], 
+                    y=daily_demand_hist['Demand (t per day)'], 
+                    mode='lines', 
+                    name='Actual', 
+                    line=dict(color='orange', width=1.5)
+                ))
+            
+            if show_forecast:
+                fig_forecast.add_trace(go.Scatter(
+                    x=forecast_data['ds'], 
+                    y=forecast_data['yhat'], 
+                    mode='lines', 
+                    name='Prophet Forecast', 
+                    line=dict(color='#d95f02', width=1.5)
+                ))
+            
+            fig_forecast.update_layout(
+                xaxis_title='Date', 
+                yaxis_title='Demand (t per day)', 
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            )
+
+            # Check if any data was added to the plot before displaying it
+            if fig_forecast.data:
+                st.plotly_chart(fig_forecast, use_container_width=True)
+            else:
+                st.info("Please select at least one line to display using the checkboxes above.")
+
+            # --- Chart 3: Rolling MAPE (only show if both are selected for a meaningful comparison) ---
+            if show_actual and show_forecast:
+                st.subheader("Model Error (Rolling MAPE)")
+                # Merge forecast with actuals
+                results_df = pd.merge(daily_demand_hist, forecast_data[['ds', 'yhat']], left_on='Date', right_on='ds')
+                # Calculate daily MAPE
+                results_df['MAPE'] = np.abs((results_df['Demand (t per day)'] - results_df['yhat']) / results_df['Demand (t per day)']) * 100
+                # Calculate 30-day rolling average of MAPE to get the smooth line
+                results_df['Rolling MAPE (%)'] = results_df['MAPE'].rolling(window=30, min_periods=1).mean()
+
+                fig_mape = px.line(results_df, x='Date', y='Rolling MAPE (%)')
+                fig_mape.update_traces(line_color='green')
+                st.plotly_chart(fig_mape, use_container_width=True)
